@@ -13,6 +13,7 @@ public class UIManager : MonoBehaviour
     public Image DownloadScreen;
     public Image ConceptsScreen;
     public Image LoadingScreen;
+    public Image NoInternetScreen;
 
     [Header("Sliders")]
     public Slider[] ConceptsSlider;
@@ -32,6 +33,79 @@ public class UIManager : MonoBehaviour
     [Header("Concepts Name")]
     public string[] dataFileName = { "scene1-night", "scene2-snow" };
     string TempPath;
+
+    [Header("URL")]
+    public string url;
+
+    public CarDriveDataHolder dataHolder;
+
+    private string FixJson(string value) {
+        string newStr1 = value.Substring(1, value.Length - 1);
+        newStr1 = newStr1.Substring(0, newStr1.Length - 1);
+        return "{\"items\":" + newStr1 + "}";
+    }
+
+    [System.Serializable]
+    public class CarDriveDataHolder
+    {
+        public List<Items> items;
+    }
+
+    [System.Serializable]
+    public class Items
+    {
+        public int id;
+        public string concept;
+        public string url;
+    }
+
+    private IEnumerator FetchDataFromServer() {
+        using (WWW www = new WWW(url))
+        {
+            yield return www;
+            if (www.isDone) {
+                dataHolder = JsonUtility.FromJson<CarDriveDataHolder>(FixJson(www.text));
+            } else {
+                Debug.Log(www.error);
+            }
+        }     
+    }
+
+    bool networkStatus = false;
+    private void Start() {
+        if (!networkStatus) {
+            StartCoroutine(CheckInternetConnection());
+            Debug.Log("Call");
+        }
+    }
+
+    private IEnumerator CheckInternetConnection() {
+        #if UNITY_EDITOR
+            Debug.Log("Unity Editor");
+            networkStatus = Application.internetReachability == NetworkReachability.ReachableViaLocalAreaNetwork;
+
+        #elif UNITY_ANDROID
+            Debug.Log("Android");
+            networkStatus = Application.internetReachability == NetworkReachability.ReachableViaCarrierDataNetwork;
+        #else
+            Debug.Log("Any other platform");
+        #endif
+
+        yield return new WaitForSeconds(5f);
+        if (!networkStatus) {
+            NoInternetScreen.gameObject.SetActive(true);           
+        } else {
+            NoInternetScreen.gameObject.SetActive(false);
+            StartCoroutine(FetchDataFromServer());
+            StartScreenButton.gameObject.SetActive(true);           
+        }
+    }
+
+    public void RetryConnectionCheck() {
+        Debug.Log("Click");
+        NoInternetScreen.gameObject.SetActive(false);
+        StartCoroutine(CheckInternetConnection());
+    }
 
     private string SetPath() {
         string tempPath = Path.Combine(Application.persistentDataPath, "AssetData");
@@ -104,13 +178,13 @@ public class UIManager : MonoBehaviour
         }
     }
 
+    int increment = 0;
     //Download Asset
     IEnumerator DownloadAsset() {
+                
         Debug.Log("Downloading Assets");
-        string[] urls = {
-                        "https://drive.google.com/uc?export=download&id=1jkURf6-kehF8M1zaay90AS8hdFJo4g6K",
-                        "https://drive.google.com/uc?export=download&id=1W2NLo9FYS5ZLOpaJKu3cM67USSgh0nvO"
-                        };
+        string[] urls = { dataHolder.items[0].url,dataHolder.items[1].url };
+        Debug.Log(urls[0] + "   " + urls[1]);
         for (int i = 0; i < urls.Length;i++) {
             Debug.Log("itenation" +i);
             WWW www = new WWW(urls[i]);
@@ -121,13 +195,18 @@ public class UIManager : MonoBehaviour
                 Debug.Log("Download Stat: " + www.progress);
                 ConceptsSlider[i].value = www.progress;
                 UnityEngine.Debug.Log("Success");
+                if (increment == 2) {
+                    DownloadScreenButton.gameObject.SetActive(true);
+                }
                 //Save
                 Save(www.bytes, CombinePath(SetPath(), dataFileName[i]));
+                increment++;
             }
-        }   
+        }
+        
     }
 
-    void Save(byte[] data, string path) {
+    void  Save(byte[] data, string path) {
         //Create the Directory if it does not exist
         if (!Directory.Exists(Path.GetDirectoryName(path))) {
             Directory.CreateDirectory(Path.GetDirectoryName(path));
